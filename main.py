@@ -42,6 +42,9 @@ audio_analyzer   = AudioAnalyzer()
 # admin WebSocket connections keyed by room_id
 admin_connections: dict[str, WebSocket] = {}
 
+# participant WebSocket connections for WebRTC signaling: room_id → {participant_id: ws}
+participant_connections: dict[str, dict[str, WebSocket]] = {}
+
 
 # ── REST endpoints ─────────────────────────────────────────────────────────────
 
@@ -103,7 +106,30 @@ async def participant_ws(websocket: WebSocket, room_id: str, participant_id: str
     await websocket.accept()
     participant.is_online = True
     scorer = EngagementScorer()
+
+    # Register for WebRTC signaling
+    participant_connections.setdefault(room_id, {})[participant_id] = websocket
     logger.info(f"[WS] {participant.name} connected to room {room_id}")
+
+    # Send current participant list to the new joiner (they will initiate WebRTC offers)
+    room = room_manager.get_room(room_id)
+    current = [
+        {"id": p.id, "name": p.name}
+        for p in room.participants.values()
+        if p.is_online and p.id != participant_id
+    ]
+    await websocket.send_text(json.dumps({"type": "participant_list", "participants": current}))
+
+    # Notify all existing participants that someone joined
+    for pid, pws in list(participant_connections.get(room_id, {}).items()):
+        if pid != participant_id:
+            try:
+                await pws.send_text(json.dumps({
+                    "type": "participant_joined",
+                    "participant": {"id": participant_id, "name": participant.name},
+                }))
+            except Exception:
+                pass
 
     await _notify_admin(room_id, participant, "joined")
 
@@ -111,6 +137,20 @@ async def participant_ws(websocket: WebSocket, room_id: str, participant_id: str
         while True:
             raw  = await websocket.receive_text()
             data = json.loads(raw)
+
+            # ── WebRTC signaling relay ────────────────────────────────
+            if data.get("type") in ("offer", "answer", "ice"):
+                target_id = data.get("to")
+                target_ws = participant_connections.get(room_id, {}).get(target_id)
+                if target_ws:
+                    data["from"]      = participant_id
+                    data["from_name"] = participant.name
+                    try:
+                        await target_ws.send_text(json.dumps(data))
+                    except Exception as e:
+                        logger.error(f"Signaling relay error: {e}")
+                continue
+
             result: dict = {}
 
             # ── Video frame ───────────────────────────────────────────
@@ -142,14 +182,23 @@ async def participant_ws(websocket: WebSocket, room_id: str, participant_id: str
             if "engagement" in result: participant.engagement = result["engagement"]
             participant.last_seen = time.time()
 
-            # Reply to participant
-            await websocket.send_text(json.dumps(result))
-
-            # Push update to admin
+            # Push update to admin only — participants don't see engagement metrics
             await _notify_admin(room_id, participant, "update")
 
     except WebSocketDisconnect:
         participant.is_online = False
+        participant_connections.get(room_id, {}).pop(participant_id, None)
+
+        # Notify remaining participants that this peer left
+        for pid, pws in list(participant_connections.get(room_id, {}).items()):
+            try:
+                await pws.send_text(json.dumps({
+                    "type": "participant_left",
+                    "participant_id": participant_id,
+                }))
+            except Exception:
+                pass
+
         logger.info(f"[WS] {participant.name} disconnected from room {room_id}")
         await _notify_admin(room_id, participant, "left")
 
