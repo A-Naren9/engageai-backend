@@ -235,9 +235,30 @@ async def admin_ws(
 
     try:
         while True:
-            # Wait for keep-alive pings from the frontend
-            await websocket.receive_text()
+            raw = await websocket.receive_text()
+            try:
+                msg = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+
+            if msg.get("type") == "end_meeting":
+                logger.info(f"[WS] Admin ending room {room_id}")
+                # Notify every participant so their UI can redirect them out
+                for pid, pws in list(participant_connections.get(room_id, {}).items()):
+                    try:
+                        await pws.send_text(json.dumps({"type": "meeting_ended"}))
+                        await pws.close()
+                    except Exception:
+                        pass
+                participant_connections.pop(room_id, None)
+                # Confirm to admin then stop the loop
+                await websocket.send_text(json.dumps({"type": "meeting_ended"}))
+                break
+            # all other messages (ping, etc.) are silently accepted
+
     except WebSocketDisconnect:
+        pass
+    finally:
         admin_connections.pop(room_id, None)
         logger.info(f"[WS] Admin disconnected from room {room_id}")
 
