@@ -23,8 +23,6 @@ urllib.request.urlretrieve(url, dest)
 print(f"Done — {os.path.getsize(dest) // 1024} KB")
 EOF
 
-RUN chmod +x start.sh
-
 EXPOSE 8000
 
-CMD ["./start.sh"]
+CMD ["python", "start.py"]
