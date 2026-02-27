@@ -22,6 +22,7 @@ class Participant:
     audio: dict = field(default_factory=dict)
     engagement: dict = field(default_factory=dict)
     is_online: bool = False
+    thumbnail: str = ""   # base64 JPEG thumbnail for admin view
 
 
 @dataclass

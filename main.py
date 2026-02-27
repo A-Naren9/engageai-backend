@@ -161,6 +161,12 @@ async def participant_ws(websocket: WebSocket, room_id: str, participant_id: str
                     frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
                     if frame is not None:
                         result["emotion"] = emotion_detector.detect(frame)
+                        # Downscale to 160×120 thumbnail for admin live preview
+                        thumb = cv2.resize(frame, (160, 120))
+                        _, thumb_buf = cv2.imencode(
+                            '.jpg', thumb, [cv2.IMWRITE_JPEG_QUALITY, 60]
+                        )
+                        participant.thumbnail = base64.b64encode(thumb_buf).decode()
                 except Exception as e:
                     logger.error(f"Frame error ({participant.name}): {e}")
                     result["emotion"] = {"dominant": "unknown", "face_detected": False}
@@ -246,6 +252,7 @@ def _participant_payload(p) -> dict:
         "audio":      p.audio,
         "engagement": p.engagement,
         "is_online":  p.is_online,
+        "thumbnail":  p.thumbnail,
     }
 
 
