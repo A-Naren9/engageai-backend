@@ -23,6 +23,8 @@ urllib.request.urlretrieve(url, dest)
 print(f"Done — {os.path.getsize(dest) // 1024} KB")
 EOF
 
+RUN chmod +x start.sh
+
 EXPOSE 8000
 
-CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
+CMD ["./start.sh"]
