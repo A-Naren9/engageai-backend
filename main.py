@@ -45,6 +45,7 @@ admin_connections: dict[str, WebSocket] = {}
 
 # ── REST endpoints ─────────────────────────────────────────────────────────────
 
+@app.get("/")
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "EngageAI Conference"}
